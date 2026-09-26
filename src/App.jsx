@@ -156,6 +156,16 @@ const AppContent = () => {
             onNavigate={(page) => navigateTo(page)}
           />
         )}
+
+        {/* 404 Fallback — unknown page, redirect to landing */}
+        {!['landing','browse','book-detail','list-book','dashboard','profile','coin-guide','auth'].includes(activePage) && (
+          <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px', textAlign: 'center', padding: '40px' }}>
+            <div style={{ fontSize: '3.5rem' }}>📭</div>
+            <h2 style={{ color: 'var(--primary-forest)', margin: 0 }}>Page not found</h2>
+            <p style={{ color: 'var(--text-muted)' }}>This page doesn&apos;t exist.</p>
+            <button id="not-found-go-home" className="btn-primary" onClick={() => navigateTo('landing')}>Go to Home</button>
+          </div>
+        )}
       </main>
 
       {/* 3. Global Footer */}
