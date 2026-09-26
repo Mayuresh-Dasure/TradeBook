@@ -26,6 +26,7 @@ const DashboardPage = ({ onNavigate, onSelectBook }) => {
   const [myListings, setMyListings]       = useState([]);
   const [myRedemptions, setMyRedemptions] = useState([]);
   const [recommendedBooks, setRecommendedBooks] = useState([]);
+  const [annRecommending, setAnnRecommending]   = useState(false);
   const [loading, setLoading]             = useState(true);
   const [copiedPassId, setCopiedPassId]   = useState(null);
 
@@ -75,16 +76,72 @@ const DashboardPage = ({ onNavigate, onSelectBook }) => {
 
     setMyRedemptions(passes);
 
-    // 3. Recommended books — available, not mine
+    // 3. Fetch candidate books for ANN recommendation
     const { data: recData } = await supabase
       .from('books')
       .select('*, users(id, name, campus_name, trust_score, avatar_url)')
       .eq('status', 'available')
       .neq('seller_id', currentUser.id)
-      .limit(4)
+      .limit(20)
       .order('created_at', { ascending: false });
 
-    setRecommendedBooks((recData || []).map(normalizeBook).filter(Boolean));
+    const candidates = (recData || []).map(normalizeBook).filter(Boolean);
+
+    // 4. Try ANN recommendation — rank candidates by neural network score
+    const CATEGORY_MAP = {
+      'Engineering':  [1, 0, 0, 0],
+      'Commerce':     [0, 1, 0, 0],
+      'Science':      [0, 0, 1, 0],
+      'Arts':         [0, 0, 0, 1],
+      'General Academic': [0, 0, 0, 0],
+    };
+
+    const getCategoryVec = (cat) =>
+      CATEGORY_MAP[cat] || [0, 0, 0, 0];
+
+    // User features: inferred from their past redemptions + campus
+    const userCatVec = getCategoryVec(currentUser.campus_name);
+    const userAvgCoin = passes.length > 0
+      ? Math.min(1.0, (passes.reduce((s, p) => s + (p.book?.coinValue || 200), 0) / passes.length) / 500)
+      : 0.5;
+    const userFeatures = [...userCatVec, userAvgCoin]; // length 5
+
+    try {
+      setAnnRecommending(true);
+      const ML_URL = import.meta.env.VITE_ML_SERVICE_URL || 'http://localhost:8000';
+      const bookPayload = candidates.map((b) => ({
+        id: b.id,
+        features: [
+          ...getCategoryVec(b.subjectCategory || b.subject_category),
+          Math.min(1.0, (b.coinValue || b.coin_value || 200) / 500),
+        ],
+      }));
+
+      const res = await fetch(`${ML_URL}/api/recommend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_features: userFeatures, books: bookPayload }),
+        signal: AbortSignal.timeout(4000), // 4 s timeout
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        const ranked = json.data || [];
+        // Re-order candidates by ANN match_probability
+        const scoreMap = Object.fromEntries(ranked.map((r) => [r.book_id, r.match_probability]));
+        const sorted = [...candidates].sort(
+          (a, b) => (scoreMap[b.id] || 0) - (scoreMap[a.id] || 0)
+        );
+        setRecommendedBooks(sorted.slice(0, 4));
+      } else {
+        setRecommendedBooks(candidates.slice(0, 4));
+      }
+    } catch (_) {
+      // ML service offline — fall back to recency order
+      setRecommendedBooks(candidates.slice(0, 4));
+    } finally {
+      setAnnRecommending(false);
+    }
 
     setLoading(false);
   }, [currentUser?.id]);
@@ -323,12 +380,21 @@ const DashboardPage = ({ onNavigate, onSelectBook }) => {
         )}
       </div>
 
-      {/* ── Recommended Books ──────────────────────────────────────── */}
+      {/* ── ANN Recommended Books ───────────────────────────────────── */}
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <div>
-            <span style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--primary-forest)', textTransform: 'uppercase' }}>Curated Picks</span>
-            <h2 style={{ fontSize: '1.6rem', marginTop: '2px' }}>Recommended for {currentUser.campus_name}</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--primary-forest)', textTransform: 'uppercase' }}>AI-Powered · ANN Recommendations</span>
+              <span style={{
+                fontSize: '0.7rem', fontWeight: '700', padding: '2px 8px',
+                borderRadius: '9999px', backgroundColor: '#EEF2FF', color: '#4F46E5',
+                display: 'flex', alignItems: 'center', gap: '4px',
+              }}>
+                {annRecommending ? '⚡ Ranking…' : '🧠 Neural Network'}
+              </span>
+            </div>
+            <h2 style={{ fontSize: '1.6rem', marginTop: '2px' }}>Recommended for You</h2>
           </div>
           <button className="btn-secondary" onClick={() => onNavigate('browse')} style={{ fontSize: '0.85rem' }}>
             <span>View All</span>
