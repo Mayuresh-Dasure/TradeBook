@@ -44,6 +44,7 @@ const ListBookPage = ({ onNavigate }) => {
     category: "JEE / Physics",
     edition: "2024 Revised Edition",
     originalMrp: "450",
+    conditionAssessment: "Like New",
     courseCode: "JEE-PHY",
     isbn: "978-8177091878",
     description: "Pristine condition textbook. Used briefly during semester prep. Zero pen or highlighter marks."
@@ -547,6 +548,35 @@ const ListBookPage = ({ onNavigate }) => {
                   outline: 'none'
                 }}
               />
+            </div>
+
+            {/* Condition Self Assessment */}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', marginBottom: '6px' }}>
+                Your Condition Assessment
+              </label>
+              <select
+                value={formData.conditionAssessment}
+                onChange={(e) => setFormData({ ...formData, conditionAssessment: e.target.value })}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  borderRadius: '12px',
+                  border: '1.5px solid #D1DFD4',
+                  fontSize: '0.92rem',
+                  outline: 'none',
+                  backgroundColor: 'white',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="Like New">Like New (Perfect, unread)</option>
+                <option value="Good">Good (Minor wear, no markings)</option>
+                <option value="Fair">Fair (Noticeable wear, some markings)</option>
+                <option value="Worn">Worn (Heavy wear, cover damage, intact)</option>
+              </select>
+              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                AI Vision will verify this during Step 3.
+              </span>
             </div>
 
             {/* Description */}

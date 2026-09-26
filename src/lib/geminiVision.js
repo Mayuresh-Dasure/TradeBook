@@ -79,7 +79,9 @@ export async function appraiseBookHeuristics({ photos, photoFiles, formData }) {
   const sellerEdition = formData?.edition || 'Latest Student Edition';
 
   const desc = (formData?.description || '').toLowerCase();
-  let grade = 'Like New';
+  
+  // Use the user's self-assessment directly since this is just the heuristic fallback
+  let grade = formData?.conditionAssessment || 'Like New';
   let confidenceScore = 94;
   let reasoning = 'Photos confirm exceptional physical condition with sharp cover corners, tight binding, and clean unmarked pages.';
   let findings = [
@@ -89,8 +91,8 @@ export async function appraiseBookHeuristics({ photos, photoFiles, formData }) {
     'Geometry & Structure: 100% complete textbook with all original supplement pages.',
   ];
 
-  if (desc.includes('worn') || desc.includes('torn') || desc.includes('stain') || desc.includes('heavy')) {
-    grade = 'Worn'; confidenceScore = 82;
+  if (grade === 'Worn') {
+    confidenceScore = 82;
     reasoning = 'Visual inspection shows noticeable wear along outer edges and heavy marginal markings.';
     findings = [
       'Cover Analysis: Visible edge fraying and surface scuff marks.',
@@ -98,8 +100,8 @@ export async function appraiseBookHeuristics({ photos, photoFiles, formData }) {
       'Interior Pages: Frequent highlighter and pencil study notes across multiple chapters.',
       'Geometry & Structure: Fully complete and readable with all problem sets intact.',
     ];
-  } else if (desc.includes('fair') || desc.includes('highlight') || desc.includes('notes') || desc.includes('pencil') || desc.includes('used')) {
-    grade = 'Fair'; confidenceScore = 89;
+  } else if (grade === 'Fair') {
+    confidenceScore = 89;
     reasoning = 'Good structural integrity with minor shelf wear and light study notes inside.';
     findings = [
       'Cover Analysis: Minor shelf wear and light surface scratches consistent with 1 semester use.',
@@ -107,8 +109,8 @@ export async function appraiseBookHeuristics({ photos, photoFiles, formData }) {
       'Interior Pages: Occasional neat pencil underlines; no missing or torn sheets.',
       'Geometry & Structure: Complete book with fully intact index and appendix.',
     ];
-  } else if (desc.includes('good') || desc.includes('minor') || desc.includes('clean')) {
-    grade = 'Good'; confidenceScore = 92;
+  } else if (grade === 'Good') {
+    confidenceScore = 92;
     reasoning = 'Very clean textbook with intact binding and well-preserved pages.';
     findings = [
       'Cover Analysis: Very light corner rounding, title and graphics completely vibrant.',
