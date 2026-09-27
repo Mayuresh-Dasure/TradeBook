@@ -1,30 +1,14 @@
 
 import { requiresManualReview } from './coinValuation';
-import { analyzeBookWithGemini, appraiseBookHeuristics, fileOrUrlToGenerativePart } from './geminiVision';
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const EDGE_FUNCTION_URL = SUPABASE_URL ? `${SUPABASE_URL}/functions/v1/analyze-book` : null;
+import { analyzeBookWithGemini, appraiseBookHeuristics } from './geminiVision';
 
 const VALID_GRADES = ['Like New', 'Good', 'Fair', 'Worn'];
-const EDGE_FUNCTION_TIMEOUT_MS = 8_000;
-
-function validateAppraisalResult(data) {
-  if (!data || typeof data !== 'object') return false;
-  const r = data;
-  if (typeof r.detected_title !== 'string') return false;
-  if (typeof r.detected_author !== 'string') return false;
-  if (!VALID_GRADES.includes(r.condition_grade)) return false;
-  if (typeof r.condition_reasoning !== 'string') return false;
-  if (typeof r.confidence_score !== 'number') return false;
-  return true;
-}
 
 /**
  * Call the Appraisal Pipeline.
  *
- * TEMP MOCK - demo purpose, real ML integration pending
- * In demo mode, Tier 1 (Gemini direct) and Tier 2 (Supabase Edge Function)
- * are skipped. All calls fall through to Tier 3 heuristic engine.
+ * Tier 1: Real Gemini Vision API (if VITE_GEMINI_API_KEY is set)
+ * Tier 2: Heuristic fallback engine (if no API key)
  *
  * @param {Object} params
  * @param {Object} [params.photoFiles]  - Map of slot -> File object
@@ -35,7 +19,6 @@ function validateAppraisalResult(data) {
  * @returns {Promise<Object>} Normalised appraisal result with calculatedCoins & findings
  */
 export async function callAppraisalEdgeFunction({ photoFiles = {}, photos = {}, photoUrls, title, originalPrice, formData = {} }) {
-  const SLOTS = ['front', 'back', 'spine', 'pages', 'distance'];
   const mergedFormData = {
     title: title || formData.title || 'Academic Textbook',
     author: formData.author || 'Standard Author',
@@ -43,27 +26,45 @@ export async function callAppraisalEdgeFunction({ photoFiles = {}, photos = {}, 
     edition: formData.edition || 'Student Edition',
     originalMrp: Number(originalPrice || formData.originalMrp) || 450,
     description: formData.description || '',
+    conditionAssessment: formData.conditionAssessment || 'Like New',
   };
 
   const directApiKey = (import.meta.env.VITE_GEMINI_API_KEY || '').trim();
+
   if (directApiKey) {
-    try {
-      console.log('[bookAppraisal] Attempting Tier 1: Direct Gemini Vision API…');
-      const directResult = await analyzeBookWithGemini({
-        photos,
-        photoFiles,
-        formData: mergedFormData,
-        apiKey: directApiKey,
-      });
-      console.log('[bookAppraisal] Tier 1 Direct Gemini Vision succeeded!');
-      return directResult;
-    } catch (directErr) {
-      console.warn('[bookAppraisal] Tier 1 Direct Gemini failed, falling back:', directErr.message);
+    // Tier 1: Real Gemini Vision API — retry up to 2 times on 503 overload
+    console.log('[bookAppraisal] Tier 1: Calling real Gemini Vision API...');
+    const MAX_RETRIES = 2;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const directResult = await analyzeBookWithGemini({
+          photos,
+          photoFiles,
+          formData: mergedFormData,
+          apiKey: directApiKey,
+        });
+        console.log('[bookAppraisal] Tier 1 Gemini Vision succeeded!');
+        return directResult;
+      } catch (err) {
+        const is503 = err.message?.includes('503') || err.message?.includes('high demand') || err.message?.includes('overloaded');
+        if (is503 && attempt < MAX_RETRIES) {
+          console.warn(`[bookAppraisal] Gemini busy (503), retrying in 2s... (attempt ${attempt}/${MAX_RETRIES})`);
+          await new Promise(r => setTimeout(r, 2000));
+        } else if (is503) {
+          // Gemini is overloaded — fall back to heuristic silently
+          console.warn('[bookAppraisal] Gemini overloaded after retries, using heuristic fallback.');
+          break;
+        } else {
+          // Any other error (bad key, CORS, etc.) — throw it to the UI
+          throw err;
+        }
+      }
     }
   }
-  // ── Tier 3: Intelligent Campus Vision Appraisal Engine 
-  console.log('[bookAppraisal] Engaging Tier 3: Intelligent Campus Vision Appraisal Engine…');
-  await new Promise(r => setTimeout(r, 600)); // Realistic inspection sensation
+
+  // Tier 2: Heuristic engine (no API key configured)
+  console.log('[bookAppraisal] No API key found. Using Tier 2: Heuristic Engine...');
+  await new Promise(r => setTimeout(r, 600));
 
   const heuristicResult = await appraiseBookHeuristics({
     photos,

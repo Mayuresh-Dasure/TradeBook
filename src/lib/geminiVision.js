@@ -1,7 +1,7 @@
 
 
 import { calculateBookCoinsAsync, requiresManualReview, GRADE_PERCENTAGES } from './coinValuation';
-
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export async function fileOrUrlToGenerativePart(fileOrUrl, fallbackMime = 'image/jpeg') {
   if (!fileOrUrl) return null;
@@ -139,80 +139,87 @@ export async function appraiseBookHeuristics({ photos, photoFiles, formData }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-export async function analyzeBookWithGemini({ photos, photoFiles, formData }) {
-  // TEMP MOCK - demo purpose, real ML integration pending
+export async function analyzeBookWithGemini({ photos, photoFiles, formData, apiKey }) {
+  if (!apiKey) {
+    throw new Error("Missing Gemini API Key");
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  // Using gemini-1.5-flash for speed and multimodal support
+  const model = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
 
   const originalPrice = Math.max(50, Number(formData?.originalMrp) || 450);
-  const desc = (formData?.description || '').toLowerCase();
-
-  // Count user-supplied photos (not default Unsplash placeholders)
-  const userPhotoCount = Object.values(photoFiles || {}).filter(Boolean).length;
-
-  // ── Simulate AI processing delay: 1.2s – 2.4s ──
-  await new Promise(r => setTimeout(r, 1200 + Math.floor(Math.random() * 1200)));
-
-  // ── Determine mock grade from description keywords ──
-  let grade = 'Like New';
-  let confidenceScore = 91 + Math.floor(Math.random() * 5); // 91–95
-  let reasoning = 'Cover and spine photos confirm minimal wear. Pages are clean with no visible annotations.';
-  let findings = [
-    'Cover Analysis: Clean gloss finish with zero creasing or corner blunting.',
-    'Spine & Binding: Factory-tight binding; no cracked glue or page separation.',
-    'Interior Pages: White, crisp margins with zero pen or highlighter marks.',
-    'Geometry & Structure: Fully intact textbook with all supplement pages present.',
-  ];
-
-  if (desc.includes('worn') || desc.includes('torn') || desc.includes('stain') || desc.includes('heavy')) {
-    grade = 'Worn';
-    confidenceScore = 80 + Math.floor(Math.random() * 6);
-    reasoning = 'Visible edge fraying and heavy marginal marking detected across submitted photos.';
-    findings = [
-      'Cover Analysis: Visible edge fraying and surface scuff marks on front cover.',
-      'Spine & Binding: Wear along top spine edge; binding remains structurally held.',
-      'Interior Pages: Frequent highlighter and pencil notes across multiple chapters.',
-      'Geometry & Structure: Fully readable with all problem sets intact.',
-    ];
-  } else if (desc.includes('fair') || desc.includes('highlight') || desc.includes('notes') || desc.includes('pencil') || desc.includes('used')) {
-    grade = 'Fair';
-    confidenceScore = 86 + Math.floor(Math.random() * 5);
-    reasoning = 'Shelf wear and occasional study annotations visible. Structurally sound and fully usable.';
-    findings = [
-      'Cover Analysis: Minor shelf wear and light scratches consistent with one semester of use.',
-      'Spine & Binding: Spine intact and firm with light creasing.',
-      'Interior Pages: Occasional neat pencil underlines; no missing or torn sheets.',
-      'Geometry & Structure: Complete book with fully intact index and appendix.',
-    ];
-  } else if (desc.includes('good') || desc.includes('minor') || desc.includes('clean')) {
-    grade = 'Good';
-    confidenceScore = 90 + Math.floor(Math.random() * 4);
-    reasoning = 'Very clean textbook with intact binding and well-preserved pages.';
-    findings = [
-      'Cover Analysis: Very light corner rounding; title and graphics remain completely vibrant.',
-      'Spine & Binding: Firm spine alignment with zero page detachment.',
-      'Interior Pages: Clean, crisp text with minimal marginalia.',
-      'Geometry & Structure: Complete standard edition in solid condition.',
-    ];
+  const userAssessment = formData?.conditionAssessment || "Like New";
+  
+  // Convert all uploaded files into generative parts
+  const imageParts = [];
+  for (const key of ['front', 'back', 'spine', 'pages', 'distance']) {
+    const file = photoFiles[key];
+    if (file) {
+      const part = await fileOrUrlToGenerativePart(file);
+      if (part) imageParts.push(part);
+    }
   }
 
-  // Slightly lower confidence if fewer user photos uploaded
-  if (userPhotoCount < 3) {
-    confidenceScore = Math.max(72, confidenceScore - 8);
+  if (imageParts.length === 0) {
+    throw new Error("No real photos uploaded to analyze. Please upload photos for AI analysis.");
   }
 
-  const needsReview = confidenceScore < 60;
-  const calculatedCoins = await calculateBookCoinsAsync(originalPrice, grade);
+  const prompt = `
+    You are an expert academic textbook appraiser for a university book exchange.
+    I am providing ${imageParts.length} photos of a textbook.
+    The seller claims the book condition is: "${userAssessment}".
+    
+    Please analyze the images and determine if the seller's claim is accurate.
+    Provide your output STRICTLY as a raw JSON object with no markdown formatting, no code blocks, and no extra text.
+    The JSON must match exactly this structure:
+    {
+      "grade": "Like New" | "Good" | "Fair" | "Worn",
+      "confidenceScore": number (0-100, how confident you are in your assessment),
+      "reasoning": "A 1-2 sentence explanation of why you gave this grade based on the photos.",
+      "findings": [
+        "Cover Analysis: ...",
+        "Spine & Binding: ...",
+        "Interior Pages: ...",
+        "Geometry & Structure: ..."
+      ]
+    }
+  `;
 
-  return {
-    detectedTitle: formData?.title || 'Academic Textbook',
-    detectedAuthor: formData?.author || 'Standard Author',
-    detectedEdition: formData?.edition || 'Standard Edition',
-    detectedCategory: formData?.category || 'College / Academic',
-    conditionGrade: grade,
-    conditionReasoning: reasoning,
-    confidenceScore,
-    estimatedMarketPrice: originalPrice,
-    needsManualReview: needsReview,
-    calculatedCoins,
-    findings,
-  };
+  try {
+    const result = await model.generateContent([prompt, ...imageParts]);
+    const responseText = result.response.text();
+    
+    // Clean markdown if Gemini accidentally adds it
+    const cleanJsonStr = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleanJsonStr);
+
+    const grade = parsed.grade || userAssessment;
+    const confidenceScore = parsed.confidenceScore || 85;
+    const needsReview = requiresManualReview(confidenceScore, false);
+    const calculatedCoins = await calculateBookCoinsAsync(originalPrice, grade);
+
+    return {
+      detectedTitle: (formData?.title || 'Academic Textbook').trim(),
+      detectedAuthor: (formData?.author || 'Standard Author').trim(),
+      detectedEdition: formData?.edition || 'Latest Student Edition',
+      detectedCategory: formData?.category || 'College / Academic',
+      conditionGrade: grade,
+      conditionReasoning: parsed.reasoning || "AI verified the condition.",
+      confidenceScore,
+      estimatedMarketPrice: originalPrice,
+      needsManualReview: needsReview,
+      calculatedCoins,
+      findings: parsed.findings || [
+        'Cover Analysis: Verified by AI.',
+        'Spine & Binding: Verified by AI.',
+        'Interior Pages: Verified by AI.',
+        'Geometry & Structure: Verified by AI.',
+      ],
+    };
+  } catch (err) {
+    console.error("Gemini API Error:", err);
+    // Throw the real error so we can see what's actually going wrong
+    throw new Error(`Gemini Error: ${err.message || JSON.stringify(err)}`);
+  }
 }

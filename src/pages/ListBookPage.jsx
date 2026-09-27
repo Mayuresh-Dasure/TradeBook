@@ -39,15 +39,15 @@ const ListBookPage = ({ onNavigate }) => {
 
   // Step 1: Form Details
   const [formData, setFormData] = useState({
-    title: "Concepts of Physics (Vol 1)",
-    author: "Dr. H.C. Verma",
-    category: "JEE / Physics",
-    edition: "2024 Revised Edition",
-    originalMrp: "450",
+    title: "",
+    author: "",
+    category: "",
+    edition: "",
+    originalMrp: "",
     conditionAssessment: "Like New",
-    courseCode: "JEE-PHY",
-    isbn: "978-8177091878",
-    description: "Pristine condition textbook. Used briefly during semester prep. Zero pen or highlighter marks."
+    courseCode: "",
+    isbn: "",
+    description: ""
   });
 
   // Step 2: 5 Photos — preview URLs (data: or Unsplash fallback)
@@ -498,6 +498,7 @@ const ListBookPage = ({ onNavigate }) => {
                   backgroundColor: '#FFFFFF'
                 }}
               >
+                <option value="" disabled>Select Category</option>
                 <option value="JEE / Physics">JEE / Physics</option>
                 <option value="JEE / Chemistry">JEE / Chemistry</option>
                 <option value="Computer Science">Computer Science</option>
@@ -505,6 +506,7 @@ const ListBookPage = ({ onNavigate }) => {
                 <option value="Medical">Medical (MBBS)</option>
                 <option value="School / CBSE">School / CBSE Class 11-12</option>
                 <option value="Economics / Management">Economics / Management</option>
+                <option value="Other">Other</option>
               </select>
             </div>
 
